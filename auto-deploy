@@ -1,0 +1,98 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "badamteja/java-app"
+        CONTAINER_NAME = "java-app-container"
+    }
+
+    stages {
+
+        stage('Clean Workspace') {
+            steps {
+                deleteDir()
+            }
+        }
+
+        stage('Checkout Code') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/master']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        credentialsId: 'Git-Creds',
+                        url: 'https://github.com/BadamTeja/jenkins-java-project-mustafa.git'
+                    ]]
+                )
+            }
+        }
+
+        stage('Verify Versions') {
+            steps {
+                sh 'java -version'
+                sh 'mvn -version'
+            }
+        }
+
+        stage('Build Application') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $IMAGE_NAME:latest .'
+            }
+        }
+
+        stage('Remove Old Container') {
+            steps {
+                sh '''
+                docker stop $CONTAINER_NAME || true
+                docker rm $CONTAINER_NAME || true
+                '''
+            }
+        }
+
+        stage('Remove Old Image') {
+            steps {
+                sh '''
+                docker rmi $IMAGE_NAME:latest || true
+                '''
+            }
+        }
+
+        stage('Run New Container') {
+            steps {
+                sh '''
+                docker run -d -p 8080:8080 --name $CONTAINER_NAME $IMAGE_NAME:latest
+                '''
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh 'echo $PASS | docker login -u $USER --password-stdin'
+                }
+            }
+        }
+
+        stage('Push Image to DockerHub') {
+            steps {
+                sh 'docker push $IMAGE_NAME:latest'
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo 'Deployment Successful 🚀'
+        }
+        failure {
+            echo 'Pipeline Failed ❌'
+        }
+    }
+}
